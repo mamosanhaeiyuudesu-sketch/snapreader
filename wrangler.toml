@@ -1,0 +1,10 @@
+name = "snapreader-worker"
+main = ".output/server/index.mjs"
+compatibility_date = "2024-12-31"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Add non-secret variables here. Set the API key with: wrangler secret put OPENAI_API_KEY
+
+[build]
+command = "npm run build"
