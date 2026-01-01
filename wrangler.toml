@@ -7,3 +7,7 @@ compatibility_date = "2024-12-31"
 
 [build]
 command = "npm run build"
+
+[assets]
+directory = ".output/public"
+
