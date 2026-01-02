@@ -6,7 +6,7 @@
 
 - Node.js 18+ を想定。
 - 依存インストール: `npm install`
-- 環境変数: `.env` を作成し、ローカル用に `NUXT_OPENAI_API_KEY=` を設定（テンプレは `.env.example`）。Cloudflare では `wrangler secret put OPENAI_API_KEY` でシークレット登録します。
+- 環境変数: `.env` を作成し、ローカル用に `OPENAI_API_KEY=` を設定（テンプレは `.env.example`）。Cloudflare では `wrangler secret put OPENAI_API_KEY` でシークレット登録します。
 
 ## 開発
 
@@ -16,7 +16,7 @@
 
 ## 動作確認
 
-1) `.env` に `NUXT_OPENAI_API_KEY` をセット。  
+1) `.env` に `OPENAI_API_KEY` をセット。  
 2) `npm run dev` で起動。  
 3) 画像をアップロードまたはカメラで撮影し、「要約を依頼する」を押下。  
 4) 要約がカード内に表示されること、エラー時にメッセージが出ることを確認。

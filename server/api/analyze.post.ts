@@ -9,9 +9,10 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  const cfApiKey = event.context.cloudflare?.env?.OPENAI_API_KEY;
+  // const cfApiKey = event.context.cloudflare?.env?.OPENAI_API_KEY;
   const configApiKey = useRuntimeConfig(event).openaiApiKey;
-  const apiKey = cfApiKey || configApiKey;
+  // const apiKey = cfApiKey || configApiKey;
+  const apiKey = configApiKey;
 
   if (!apiKey) {
     throw createError({
