@@ -1,8 +1,8 @@
 node_modules
 .nuxt
 .output
+.wrangler
 .env
-.env.*
 npm-debug.log*
 yarn.lock
 pnpm-lock.yaml

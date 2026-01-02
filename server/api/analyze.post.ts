@@ -9,11 +9,9 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  const cfApiKey = process.env.OPENAI_API_KEY;
-  const configApiKey = useRuntimeConfig(event).openaiApiKey;
-  const apiKey = cfApiKey || configApiKey;
+  const { openaiApiKey } = useRuntimeConfig()
 
-  if (!apiKey) {
+  if (!openaiApiKey) {
     throw createError({
       statusCode: 500,
       statusMessage: 'OpenAI API key is not configured.',
@@ -24,7 +22,7 @@ export default defineEventHandler(async (event) => {
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${openaiApiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

@@ -1,11 +1,10 @@
 import { defineNuxtConfig } from 'nuxt/config';
 
 export default defineNuxtConfig({
-  devtools: { enabled: true },
   runtimeConfig: {
-    openaiApiKey: process.env.OPENAI_API_KEY || '',
+    openaiApiKey: '', // 値は入れない
   },
   nitro: {
     preset: 'cloudflare',
   },
-});
+})
