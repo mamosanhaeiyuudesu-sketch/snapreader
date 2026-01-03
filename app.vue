@@ -14,7 +14,6 @@
           <input
             type="file"
             accept="image/*"
-            capture="environment"
             @change="onFileChange"
           />
           <span>写真を撮る / ファイルを選ぶ</span>
