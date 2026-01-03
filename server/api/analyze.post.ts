@@ -1,3 +1,15 @@
+const CACHE_TTL_MS = 60 * 60 * 72; // 72時間
+const cache = new Map<string, { summary: string; expiresAt: number }>();
+
+const hashString = (value: string) => {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `${(hash >>> 0).toString(16)}-${value.length}`;
+};
+
 export default defineEventHandler(async (event) => {
   const body = await readBody<{ imageBase64?: string }>(event);
   const imageBase64 = body?.imageBase64;
@@ -19,6 +31,17 @@ export default defineEventHandler(async (event) => {
   }
 
   try {
+    const cacheKey = hashString(imageBase64);
+    const cached = cache.get(cacheKey);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now) {
+      setHeader(event, 'X-Cache', 'HIT');
+      return { summary: cached.summary };
+    }
+    if (cached && cached.expiresAt <= now) {
+      cache.delete(cacheKey);
+    }
+
     const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
@@ -31,13 +54,13 @@ export default defineEventHandler(async (event) => {
           {
             role: 'user',
             content: [
-              { type: 'input_text', text: 'Summarize this image in Japanese.' },
+              { type: 'input_text', text: '日本語で要約して。' },
               // Responses API expects `input_image` with a string URL (data URL works).
               { type: 'input_image', image_url: imageBase64 },
             ],
           },
         ],
-        max_output_tokens: 256,
+        max_output_tokens: 1000,
       }),
     });
 
@@ -69,6 +92,7 @@ export default defineEventHandler(async (event) => {
       });
     }
 
+    cache.set(cacheKey, { summary: content, expiresAt: now + CACHE_TTL_MS });
     return { summary: content };
   } catch (err: any) {
     if (err?.statusCode && err?.statusMessage) {

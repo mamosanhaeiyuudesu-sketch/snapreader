@@ -6,7 +6,7 @@
           <p class="eyebrow">SnapReader</p>
           <h1>画像を送って、数秒で要約。</h1>
         </div>
-        <p class="hint">カメラかファイルから画像を選び、OpenAI で内容を要約します。</p>
+        <!-- <p class="hint">カメラかファイルから画像を選び、AIで画像を読み込み、内容を要約します。</p> -->
       </header>
 
       <section class="uploader">
@@ -42,6 +42,45 @@
         <p>{{ summary }}</p>
       </section>
 
+      <section v-if="summary" class="chat">
+        <!-- <div class="chat__controls">
+          <label class="chat__toggle">
+            <input v-model="includeImageInChat" type="checkbox" />
+            <span>画像も参照する（遅くなる）</span>
+          </label>
+        </div> -->
+        <div v-if="chatMessages.length" class="chat__log">
+          <div
+            v-for="(message, index) in chatMessages"
+            :key="index"
+            class="chat__bubble"
+            :class="message.role === 'user' ? 'chat__bubble--user' : 'chat__bubble--assistant'"
+          >
+            <p>{{ message.content }}</p>
+          </div>
+        </div>
+        <p v-else class="chat__empty">質問を入力すると会話が始まります。</p>
+        <form class="chat__form" @submit.prevent="sendChat">
+          <textarea
+            v-model="chatInput"
+            class="chat__input"
+            placeholder="質問を入力..."
+            :disabled="chatLoading"
+            @keydown="onChatKeydown"
+          ></textarea>
+          <button
+            class="primary"
+            type="submit"
+            :disabled="chatLoading || !chatInput.trim()"
+          >
+            {{ chatLoading ? '送信中...' : '送信' }}
+          </button>
+        </form>
+        <section v-if="chatError" class="status status--error">
+          <p>{{ chatError }}</p>
+        </section>
+      </section>
+
       <section v-if="loading" class="status status--info">
         <p>画像を送信しています。少々お待ちください…</p>
       </section>
@@ -52,11 +91,21 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 
+type ChatMessage = {
+  role: 'user' | 'assistant';
+  content: string;
+};
+
 const previewUrl = ref<string>('');
 const imageBase64 = ref<string>('');
 const summary = ref<string>('');
 const error = ref<string>('');
 const loading = ref(false);
+const chatMessages = ref<ChatMessage[]>([]);
+const chatInput = ref('');
+const chatLoading = ref(false);
+const chatError = ref('');
+const includeImageInChat = ref(false);
 
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -97,6 +146,9 @@ const submit = async () => {
   loading.value = true;
   error.value = '';
   summary.value = '';
+  chatMessages.value = [];
+  chatInput.value = '';
+  chatError.value = '';
 
   try {
     const response = await $fetch<{ summary: string }>('/api/analyze', {
@@ -113,11 +165,63 @@ const submit = async () => {
   }
 };
 
+const sendChat = async () => {
+  if (!summary.value) {
+    chatError.value = '要約がありません。';
+    return;
+  }
+
+  if (!imageBase64.value) {
+    chatError.value = '画像を選択してください。';
+    return;
+  }
+
+  const question = chatInput.value.trim();
+  if (!question || chatLoading.value) return;
+
+  chatLoading.value = true;
+  chatError.value = '';
+
+  const nextMessages = [...chatMessages.value, { role: 'user', content: question }];
+  const trimmedMessages = nextMessages.slice(-8);
+  chatMessages.value = nextMessages;
+  chatInput.value = '';
+
+  try {
+    const response = await $fetch<{ reply: string }>('/api/chat', {
+      method: 'POST',
+      body: {
+        imageBase64: includeImageInChat.value ? imageBase64.value : undefined,
+        summary: summary.value,
+        messages: trimmedMessages,
+      },
+    });
+    chatMessages.value = [...nextMessages, { role: 'assistant', content: response.reply }];
+  } catch (err: any) {
+    const message =
+      err?.data?.message || err?.statusMessage || err?.message || '返信の取得に失敗しました。';
+    chatError.value = message;
+  } finally {
+    chatLoading.value = false;
+  }
+};
+
+const onChatKeydown = (event: KeyboardEvent) => {
+  if (event.key !== 'Enter') return;
+  if (!(event.metaKey || event.ctrlKey)) return;
+
+  event.preventDefault();
+  sendChat();
+};
+
 const reset = () => {
   previewUrl.value = '';
   imageBase64.value = '';
   summary.value = '';
   error.value = '';
+  chatMessages.value = [];
+  chatInput.value = '';
+  chatError.value = '';
 };
 </script>
 
@@ -271,12 +375,117 @@ button:disabled {
   border-color: rgba(125, 211, 252, 0.4);
 }
 
+.chat {
+  display: grid;
+  gap: 12px;
+}
+
+.chat__controls {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.chat__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #cbd5f5;
+}
+
+.chat__toggle input {
+  accent-color: #38bdf8;
+}
+
+.chat__header {
+  display: grid;
+  gap: 4px;
+}
+
+.chat__header h2 {
+  margin: 0;
+  font-size: 20px;
+  color: #f8fafc;
+}
+
+.chat__hint {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.chat__log {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.35);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.chat__bubble {
+  padding: 10px 12px;
+  border-radius: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.chat__bubble--user {
+  justify-self: end;
+  background: rgba(56, 189, 248, 0.18);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #e0f2fe;
+}
+
+.chat__bubble--assistant {
+  justify-self: start;
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #f1f5f9;
+}
+
+.chat__empty {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.chat__form {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.chat__input {
+  flex: 1;
+  min-height: 48px;
+  resize: vertical;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.chat__input:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 1px;
+}
+
 @media (max-width: 640px) {
   .card {
     padding: 22px;
   }
 
   .actions {
+    flex-direction: column;
+  }
+
+  .chat__form {
     flex-direction: column;
   }
 
