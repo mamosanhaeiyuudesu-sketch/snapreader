@@ -38,7 +38,7 @@
 
       <section v-if="summary" class="status status--success">
         <h2>要約</h2>
-        <p>{{ summary }}</p>
+        <p class="summary-text">{{ summary }}</p>
       </section>
 
       <section v-if="summary" class="chat">
@@ -106,6 +106,20 @@ const chatLoading = ref(false);
 const chatError = ref('');
 const includeImageInChat = ref(false);
 
+const formatText = (text: string) => {
+  const withoutBlocks = text.replace(/```[\s\S]*?```/g, (block) =>
+    block.replace(/```/g, '')
+  );
+  const withoutMarkdown = withoutBlocks
+    .replace(/\[(.+?)\]\((https?:\/\/[^\s)]+)\)/g, '$1')
+    .replace(/^\s*#+\s+/gm, '')
+    .replace(/^\s*>\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '')
+    .replace(/^\s*\d+\.\s+/gm, '')
+    .replace(/[`*_~]/g, '');
+  return withoutMarkdown.replace(/。/g, '。\n').trim();
+};
+
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -154,7 +168,7 @@ const submit = async () => {
       method: 'POST',
       body: { imageBase64: imageBase64.value },
     });
-    summary.value = response.summary;
+    summary.value = formatText(response.summary);
   } catch (err: any) {
     const message =
       err?.data?.message || err?.statusMessage || err?.message || '解析に失敗しました。';
@@ -181,7 +195,10 @@ const sendChat = async () => {
   chatLoading.value = true;
   chatError.value = '';
 
-  const nextMessages = [...chatMessages.value, { role: 'user', content: question }];
+  const nextMessages = [
+    ...chatMessages.value,
+    { role: 'user', content: formatText(question) },
+  ];
   const trimmedMessages = nextMessages.slice(-8);
   chatMessages.value = nextMessages;
   chatInput.value = '';
@@ -195,7 +212,10 @@ const sendChat = async () => {
         messages: trimmedMessages,
       },
     });
-    chatMessages.value = [...nextMessages, { role: 'assistant', content: response.reply }];
+    chatMessages.value = [
+      ...nextMessages,
+      { role: 'assistant', content: formatText(response.reply) },
+    ];
   } catch (err: any) {
     const message =
       err?.data?.message || err?.statusMessage || err?.message || '返信の取得に失敗しました。';
@@ -357,6 +377,10 @@ button:disabled {
 .status h2 {
   margin: 0 0 6px;
   font-size: 18px;
+}
+
+.summary-text {
+  white-space: pre-wrap;
 }
 
 .status--success {

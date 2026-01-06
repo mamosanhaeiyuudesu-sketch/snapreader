@@ -54,7 +54,11 @@ export default defineEventHandler(async (event) => {
           {
             role: 'user',
             content: [
-              { type: 'input_text', text: '日本語で要約して。' },
+              {
+                type: 'input_text',
+                text:
+                  '日本語で要約して。マークダウンは使わず、句点「。」ごとに改行して。',
+              },
               // Responses API expects `input_image` with a string URL (data URL works).
               { type: 'input_image', image_url: imageBase64 },
             ],
