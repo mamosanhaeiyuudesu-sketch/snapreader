@@ -3,6 +3,20 @@ type ChatMessage = {
   content: string;
 };
 
+const extractTextDelta = (payload: any, sentAny: boolean) => {
+  if (!payload || typeof payload !== 'object') return '';
+  if (typeof payload.delta === 'string') return payload.delta;
+  if (typeof payload.text === 'string') {
+    if (payload.type?.endsWith?.('.done') && sentAny) return '';
+    return payload.text;
+  }
+  if (typeof payload.output_text === 'string') {
+    if (payload.type?.endsWith?.('.done') && sentAny) return '';
+    return payload.output_text;
+  }
+  return '';
+};
+
 export default defineEventHandler(async (event) => {
   const body = await readBody<{
     imageBase64?: string;
@@ -91,7 +105,8 @@ export default defineEventHandler(async (event) => {
       body: JSON.stringify({
         model: 'gpt-4.1',
         input,
-        max_output_tokens: 1000,
+        max_output_tokens: 400,
+        stream: true,
       }),
     });
 
@@ -102,9 +117,8 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const data = await response.json().catch(() => null as any);
-
     if (!response.ok) {
+      const data = await response.json().catch(() => null as any);
       const openAiMessage = data?.error?.message || '返信の取得に失敗しました。';
       throw createError({
         statusCode: response.status || 500,
@@ -112,18 +126,59 @@ export default defineEventHandler(async (event) => {
       });
     }
 
-    const content =
-      data?.output_text ||
-      data?.output?.[0]?.content?.find?.((chunk: any) => 'text' in chunk)?.text;
-
-    if (!content) {
+    if (!response.body) {
       throw createError({
         statusCode: 502,
-        statusMessage: '返信を取得できませんでした。',
+        statusMessage: '返信のストリームを取得できませんでした。',
       });
     }
 
-    return { reply: content };
+    setHeader(event, 'Content-Type', 'text/plain; charset=utf-8');
+    setHeader(event, 'Cache-Control', 'no-cache, no-transform');
+    setHeader(event, 'X-Accel-Buffering', 'no');
+    setHeader(event, 'Connection', 'keep-alive');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const res = event.node.res;
+    let buffer = '';
+    let sentAny = false;
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') {
+          res.end();
+          return;
+        }
+
+        let parsed: any = null;
+        try {
+          parsed = JSON.parse(data);
+        } catch {
+          continue;
+        }
+
+        const delta = extractTextDelta(parsed, sentAny);
+        if (delta) {
+          sentAny = true;
+          res.write(delta);
+        }
+      }
+    }
+
+    res.end();
+    return;
   } catch (err: any) {
     if (err?.statusCode && err?.statusMessage) {
       throw err;

@@ -57,14 +57,14 @@ export default defineEventHandler(async (event) => {
               {
                 type: 'input_text',
                 text:
-                  '日本語で要約して。マークダウンは使わず、句点「。」ごとに改行して。',
+                  '画像の内容の概要が正確に理解できるように、日本語で要約する。マークダウンは使わず、句点「。」ごとに改行する。',
               },
               // Responses API expects `input_image` with a string URL (data URL works).
               { type: 'input_image', image_url: imageBase64 },
             ],
           },
         ],
-        max_output_tokens: 1000,
+        max_output_tokens: 2000,
       }),
     });
 

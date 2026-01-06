@@ -59,6 +59,30 @@
           </div>
         </div>
         <p v-else class="chat__empty">質問を入力すると会話が始まります。</p>
+        <div class="chat__suggestions">
+          <p class="chat__suggestions-title">この画像を深掘りする質問</p>
+          <div v-if="suggestedQuestions.length" class="chat__suggestions-list">
+            <button
+              v-for="(question, index) in suggestedQuestions"
+              :key="index"
+              class="chat__suggestion"
+              type="button"
+              :disabled="chatLoading || suggestionsLoading"
+              @click="onSuggestionClick(question)"
+            >
+              {{ question }}
+            </button>
+          </div>
+          <p v-else class="chat__suggestions-empty">
+            {{ suggestionsLoading ? '提案を生成中…' : '質問候補はありません。' }}
+          </p>
+          <p
+            v-if="suggestionsError"
+            class="chat__suggestions-status chat__suggestions-status--error"
+          >
+            {{ suggestionsError }}
+          </p>
+        </div>
         <form class="chat__form" @submit.prevent="sendChat">
           <textarea
             v-model="chatInput"
@@ -105,6 +129,9 @@ const chatInput = ref('');
 const chatLoading = ref(false);
 const chatError = ref('');
 const includeImageInChat = ref(false);
+const suggestedQuestions = ref<string[]>([]);
+const suggestionsLoading = ref(false);
+const suggestionsError = ref('');
 
 const formatText = (text: string) => {
   const withoutBlocks = text.replace(/```[\s\S]*?```/g, (block) =>
@@ -119,6 +146,9 @@ const formatText = (text: string) => {
     .replace(/[`*_~]/g, '');
   return withoutMarkdown.replace(/。/g, '。\n').trim();
 };
+
+const normalizeQuestion = (question: string) =>
+  formatText(question).replace(/\s+/g, ' ').trim();
 
 const toDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
@@ -150,6 +180,36 @@ const onFileChange = async (event: Event) => {
   }
 };
 
+const updateSuggestions = async (contextMessages: ChatMessage[]) => {
+  if (!summary.value) return;
+
+  suggestionsLoading.value = true;
+  suggestionsError.value = '';
+
+  try {
+    const response = await $fetch<{ questions: string[] }>('/api/suggest', {
+      method: 'POST',
+      body: {
+        summary: summary.value,
+        messages: contextMessages.slice(-6),
+      },
+    });
+    suggestedQuestions.value = (response?.questions ?? [])
+      .map((question) => normalizeQuestion(question))
+      .filter(Boolean)
+      .slice(0, 3);
+  } catch (err: any) {
+    const message =
+      err?.data?.message ||
+      err?.statusMessage ||
+      err?.message ||
+      '質問候補の取得に失敗しました。';
+    suggestionsError.value = message;
+  } finally {
+    suggestionsLoading.value = false;
+  }
+};
+
 const submit = async () => {
   if (!imageBase64.value) {
     error.value = '画像を選択してください。';
@@ -162,6 +222,8 @@ const submit = async () => {
   chatMessages.value = [];
   chatInput.value = '';
   chatError.value = '';
+  suggestedQuestions.value = [];
+  suggestionsError.value = '';
 
   try {
     const response = await $fetch<{ summary: string }>('/api/analyze', {
@@ -169,6 +231,7 @@ const submit = async () => {
       body: { imageBase64: imageBase64.value },
     });
     summary.value = formatText(response.summary);
+    await updateSuggestions([]);
   } catch (err: any) {
     const message =
       err?.data?.message || err?.statusMessage || err?.message || '解析に失敗しました。';
@@ -178,7 +241,7 @@ const submit = async () => {
   }
 };
 
-const sendChat = async () => {
+const sendChat = async (overrideQuestion?: string) => {
   if (!summary.value) {
     chatError.value = '要約がありません。';
     return;
@@ -189,38 +252,71 @@ const sendChat = async () => {
     return;
   }
 
-  const question = chatInput.value.trim();
+  const question = (overrideQuestion ?? chatInput.value).trim();
   if (!question || chatLoading.value) return;
 
   chatLoading.value = true;
   chatError.value = '';
 
-  const nextMessages = [
+  const nextMessages: ChatMessage[] = [
     ...chatMessages.value,
-    { role: 'user', content: formatText(question) },
+    { role: 'user', content: question },
   ];
   const trimmedMessages = nextMessages.slice(-8);
-  chatMessages.value = nextMessages;
-  chatInput.value = '';
+  chatMessages.value = [...nextMessages, { role: 'assistant', content: '' }];
+  const assistantIndex = chatMessages.value.length - 1;
+  let assistantRaw = '';
 
   try {
-    const response = await $fetch<{ reply: string }>('/api/chat', {
+    const response = await fetch('/api/chat', {
       method: 'POST',
-      body: {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
         imageBase64: includeImageInChat.value ? imageBase64.value : undefined,
         summary: summary.value,
         messages: trimmedMessages,
-      },
+      }),
     });
-    chatMessages.value = [
-      ...nextMessages,
-      { role: 'assistant', content: formatText(response.reply) },
-    ];
+
+    if (!response.ok) {
+      let message = '返信の取得に失敗しました。';
+      try {
+        const data = await response.json();
+        message = data?.message || data?.statusMessage || message;
+      } catch {
+        const text = await response.text();
+        if (text) message = text;
+      }
+      throw new Error(message);
+    }
+
+    if (!response.body) {
+      throw new Error('返信のストリームを取得できませんでした。');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        assistantRaw += decoder.decode(value, { stream: true });
+        chatMessages.value[assistantIndex].content = formatText(assistantRaw);
+      }
+    }
+
+    assistantRaw += decoder.decode();
+    chatMessages.value[assistantIndex].content = formatText(assistantRaw);
+    await updateSuggestions(chatMessages.value);
   } catch (err: any) {
     const message =
       err?.data?.message || err?.statusMessage || err?.message || '返信の取得に失敗しました。';
     chatError.value = message;
   } finally {
+    chatInput.value = '';
     chatLoading.value = false;
   }
 };
@@ -233,6 +329,11 @@ const onChatKeydown = (event: KeyboardEvent) => {
   sendChat();
 };
 
+const onSuggestionClick = (question: string) => {
+  chatInput.value = question;
+  sendChat(question);
+};
+
 const reset = () => {
   previewUrl.value = '';
   imageBase64.value = '';
@@ -241,6 +342,8 @@ const reset = () => {
   chatMessages.value = [];
   chatInput.value = '';
   chatError.value = '';
+  suggestedQuestions.value = [];
+  suggestionsError.value = '';
 };
 </script>
 
@@ -406,6 +509,56 @@ button:disabled {
 .chat__controls {
   display: flex;
   justify-content: flex-end;
+}
+
+.chat__suggestions {
+  display: grid;
+  gap: 8px;
+}
+
+.chat__suggestions-title {
+  margin: 0;
+  font-size: 14px;
+  color: #cbd5e1;
+}
+
+.chat__suggestions-list {
+  display: grid;
+  gap: 8px;
+}
+
+.chat__suggestion {
+  text-align: left;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #e0f2fe;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.2s ease;
+}
+
+.chat__suggestion:hover {
+  transform: translateY(-1px);
+  border-color: #7dd3fc;
+}
+
+.chat__suggestion:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+.chat__suggestions-empty,
+.chat__suggestions-status {
+  margin: 0;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.chat__suggestions-status--error {
+  color: #fca5a5;
 }
 
 .chat__toggle {
