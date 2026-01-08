@@ -4,7 +4,7 @@
       <header class="card__header">
         <div>
           <p class="eyebrow">SnapReader</p>
-          <h1>画像を送って、数秒で要約。</h1>
+          <h1>画像を送って、数秒で要約</h1>
         </div>
         <!-- <p class="hint">カメラかファイルから画像を選び、AIで画像を読み込み、内容を要約します。</p> -->
       </header>
@@ -12,6 +12,7 @@
       <section class="uploader">
         <label class="upload-label">
           <input
+            ref="fileInput"
             type="file"
             accept="image/*"
             @change="onFileChange"
@@ -120,6 +121,7 @@ type ChatMessage = {
 };
 
 const previewUrl = ref<string>('');
+const fileInput = ref<HTMLInputElement | null>(null);
 const imageBase64 = ref<string>('');
 const summary = ref<string>('');
 const error = ref<string>('');
@@ -344,6 +346,9 @@ const reset = () => {
   chatError.value = '';
   suggestedQuestions.value = [];
   suggestionsError.value = '';
+  if (fileInput.value) {
+    fileInput.value.value = '';
+  }
 };
 </script>
 
