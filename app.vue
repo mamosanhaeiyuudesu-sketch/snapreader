@@ -1,164 +1,115 @@
 <template>
-  <v-app>
-    <v-main class="app-shell">
-      <v-container class="py-8">
-        <v-row justify="center">
-          <v-col cols="12" md="10" lg="8">
-            <v-card class="app-card" elevation="8">
-              <v-card-title class="pb-0">
-                <div class="text-overline text-indigo-lighten-2">SnapReader</div>
-                <div class="text-h5 text-sm-h4 font-weight-semibold">
-                  画像を送って、数秒で要約
-                </div>
-                <div class="text-body-2 text-medium-emphasis mt-2">
-                  カメラまたはファイルから画像を選択し、内容を要約します。
-                </div>
-              </v-card-title>
+  <div class="page">
+    <main class="card">
+      <header class="card__header">
+        <div>
+          <p class="eyebrow">SnapReader</p>
+          <h1>画像を送って、数秒で要約</h1>
+        </div>
+        <!-- <p class="hint">カメラかファイルから画像を選び、AIで画像を読み込み、内容を要約します。</p> -->
+      </header>
 
-              <v-card-text>
-                <v-file-input
-                  v-model="selectedFile"
-                  accept="image/*"
-                  label="写真を撮る / ファイルを選ぶ"
-                  variant="outlined"
-                  density="comfortable"
-                  prepend-icon=""
-                  clearable
-                  @update:modelValue="onFilePicked"
-                />
+      <section class="uploader">
+        <label class="upload-label">
+          <input
+            ref="fileInput"
+            type="file"
+            accept="image/*"
+            @change="onFileChange"
+          />
+          <span>写真を撮る / ファイルを選ぶ</span>
+        </label>
+        <div v-if="previewUrl" class="preview">
+          <img :src="previewUrl" alt="選択した画像のプレビュー" />
+        </div>
+      </section>
 
-                <v-img
-                  v-if="previewUrl"
-                  :src="previewUrl"
-                  class="preview mt-4"
-                  max-height="320"
-                  cover
-                />
+      <section class="actions">
+        <button class="primary" :disabled="!imageBase64 || loading" @click="submit">
+          {{ loading ? '送信中...' : '要約を依頼する' }}
+        </button>
+        <button class="ghost" :disabled="loading || !previewUrl" @click="reset">
+          リセット
+        </button>
+      </section>
 
-                <div class="d-flex flex-wrap ga-2 mt-4">
-                  <v-btn
-                    color="primary"
-                    :loading="loading"
-                    :disabled="!imageBase64 || loading"
-                    @click="submit"
-                  >
-                    {{ loading ? '送信中...' : '要約を依頼する' }}
-                  </v-btn>
-                  <v-btn variant="outlined" :disabled="loading || !previewUrl" @click="reset">
-                    リセット
-                  </v-btn>
-                </div>
+      <section v-if="error" class="status status--error">
+        <p>{{ error }}</p>
+      </section>
 
-                <v-alert v-if="error" class="mt-4" type="error" variant="tonal" border="start">
-                  {{ error }}
-                </v-alert>
+      <section v-if="summary" class="status status--success">
+        <h2>要約</h2>
+        <p class="summary-text">{{ summary }}</p>
+      </section>
 
-                <v-alert
-                  v-if="summary"
-                  class="mt-4"
-                  type="success"
-                  variant="tonal"
-                  border="start"
-                >
-                  <div class="text-subtitle-1 font-weight-semibold mb-2">要約</div>
-                  <div class="summary-text">{{ summary }}</div>
-                </v-alert>
+      <section v-if="summary" class="chat">
+        <!-- <div class="chat__controls">
+          <label class="chat__toggle">
+            <input v-model="includeImageInChat" type="checkbox" />
+            <span>画像も参照する（遅くなる）</span>
+          </label>
+        </div> -->
+        <div v-if="chatMessages.length" class="chat__log">
+          <div
+            v-for="(message, index) in chatMessages"
+            :key="index"
+            class="chat__bubble"
+            :class="message.role === 'user' ? 'chat__bubble--user' : 'chat__bubble--assistant'"
+          >
+            <p>{{ message.content }}</p>
+          </div>
+        </div>
+        <p v-else class="chat__empty">質問を入力すると会話が始まります。</p>
+        <div class="chat__suggestions">
+          <p class="chat__suggestions-title">この画像を深掘りする質問</p>
+          <div v-if="suggestedQuestions.length" class="chat__suggestions-list">
+            <button
+              v-for="(question, index) in suggestedQuestions"
+              :key="index"
+              class="chat__suggestion"
+              type="button"
+              :disabled="chatLoading || suggestionsLoading"
+              @click="onSuggestionClick(question)"
+            >
+              {{ question }}
+            </button>
+          </div>
+          <p v-else class="chat__suggestions-empty">
+            {{ suggestionsLoading ? '提案を生成中…' : '質問候補はありません。' }}
+          </p>
+          <p
+            v-if="suggestionsError"
+            class="chat__suggestions-status chat__suggestions-status--error"
+          >
+            {{ suggestionsError }}
+          </p>
+        </div>
+        <form class="chat__form" @submit.prevent="sendChat">
+          <textarea
+            v-model="chatInput"
+            class="chat__input"
+            placeholder="質問を入力..."
+            :disabled="chatLoading"
+            @keydown="onChatKeydown"
+          ></textarea>
+          <button
+            class="primary"
+            type="submit"
+            :disabled="chatLoading || !chatInput.trim()"
+          >
+            {{ chatLoading ? '送信中...' : '送信' }}
+          </button>
+        </form>
+        <section v-if="chatError" class="status status--error">
+          <p>{{ chatError }}</p>
+        </section>
+      </section>
 
-                <v-alert v-if="loading" class="mt-4" type="info" variant="tonal" border="start">
-                  画像を送信しています。少々お待ちください…
-                </v-alert>
-              </v-card-text>
-            </v-card>
-
-            <v-card v-if="summary" class="app-card mt-6 chat-card" elevation="4">
-              <v-card-title class="pb-2">
-                <div class="text-h6">チャット</div>
-                <div class="text-body-2 text-medium-emphasis">要約について続けて質問できます。</div>
-              </v-card-title>
-              <v-card-text class="chat-body">
-                <div class="d-flex align-center justify-space-between flex-wrap ga-2 mb-3">
-                  <div class="text-body-2 text-medium-emphasis">
-                    この画像を深掘りする質問
-                  </div>
-                  <v-switch
-                    v-model="includeImageInChat"
-                    inset
-                    density="compact"
-                    label="画像も参照する"
-                    hide-details
-                  />
-                </div>
-
-                <div v-if="suggestedQuestions.length" class="mb-4">
-                  <v-chip
-                    v-for="(question, index) in suggestedQuestions"
-                    :key="index"
-                    class="ma-1"
-                    variant="tonal"
-                    color="primary"
-                    :disabled="chatLoading || suggestionsLoading"
-                    @click="onSuggestionClick(question)"
-                  >
-                    {{ question }}
-                  </v-chip>
-                </div>
-                <div v-else class="text-body-2 text-medium-emphasis mb-4">
-                  {{ suggestionsLoading ? '提案を生成中…' : '質問候補はありません。' }}
-                </div>
-                <div v-if="suggestionsError" class="text-body-2 text-error mb-4">
-                  {{ suggestionsError }}
-                </div>
-
-                <div v-if="chatMessages.length" class="chat-log">
-                  <div
-                    v-for="(message, index) in chatMessages"
-                    :key="index"
-                    class="chat-row"
-                    :class="message.role === 'user' ? 'chat-row--user' : 'chat-row--assistant'"
-                  >
-                    <div
-                      class="chat-bubble"
-                      :class="message.role === 'user' ? 'chat-bubble--user' : 'chat-bubble--assistant'"
-                    >
-                      <span>{{ message.content }}</span>
-                    </div>
-                  </div>
-                </div>
-                <div v-else class="text-body-2 text-medium-emphasis mb-4">
-                  質問を入力すると会話が始まります。
-                </div>
-
-                <div class="chat-input-bar">
-                  <v-textarea
-                    v-model="chatInput"
-                    label="質問を入力"
-                    variant="outlined"
-                    rows="2"
-                    auto-grow
-                    hide-details
-                    :disabled="chatLoading"
-                    @keydown="onChatKeydown"
-                  />
-                  <v-btn
-                    color="primary"
-                    :loading="chatLoading"
-                    :disabled="chatLoading || !chatInput.trim()"
-                    @click="sendChat"
-                  >
-                    送信
-                  </v-btn>
-                </div>
-
-                <v-alert v-if="chatError" class="mt-4" type="error" variant="tonal" border="start">
-                  {{ chatError }}
-                </v-alert>
-              </v-card-text>
-            </v-card>
-          </v-col>
-        </v-row>
-      </v-container>
-    </v-main>
-  </v-app>
+      <section v-if="loading" class="status status--info">
+        <p>画像を送信しています。少々お待ちください…</p>
+      </section>
+    </main>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -169,8 +120,8 @@ type ChatMessage = {
   content: string;
 };
 
-const selectedFile = ref<File | null>(null);
 const previewUrl = ref<string>('');
+const fileInput = ref<HTMLInputElement | null>(null);
 const imageBase64 = ref<string>('');
 const summary = ref<string>('');
 const error = ref<string>('');
@@ -209,22 +160,13 @@ const toDataUrl = (file: File) =>
     reader.readAsDataURL(file);
   });
 
-const onFilePicked = async (fileOrFiles: File | File[] | null) => {
-  const file = Array.isArray(fileOrFiles) ? fileOrFiles[0] : fileOrFiles;
-
-  if (!file) {
-    previewUrl.value = '';
-    imageBase64.value = '';
-    return;
-  }
+const onFileChange = async (event: Event) => {
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
 
   error.value = '';
   summary.value = '';
-  chatMessages.value = [];
-  chatInput.value = '';
-  chatError.value = '';
-  suggestedQuestions.value = [];
-  suggestionsError.value = '';
 
   if (!file.type.startsWith('image/')) {
     error.value = '画像ファイルを選択してください。';
@@ -395,7 +337,6 @@ const onSuggestionClick = (question: string) => {
 };
 
 const reset = () => {
-  selectedFile.value = null;
   previewUrl.value = '';
   imageBase64.value = '';
   summary.value = '';
@@ -405,125 +346,332 @@ const reset = () => {
   chatError.value = '';
   suggestedQuestions.value = [];
   suggestionsError.value = '';
+  if (fileInput.value) {
+    fileInput.value.value = '';
+  }
 };
 </script>
 
 <style scoped>
-.app-shell {
-  min-height: 100vh;
+:global(body) {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   background: radial-gradient(circle at 20% 20%, #0f172a 0, #020617 45%);
+  color: #e2e8f0;
 }
 
-.app-card {
-  background: rgba(15, 23, 42, 0.7);
-  border: 1px solid rgba(148, 163, 184, 0.2);
+.page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.card {
+  width: min(960px, 100%);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  padding: 28px;
+  box-shadow: 0 20px 80px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(10px);
-  width: 100%;
+  display: grid;
+  gap: 16px;
+}
+
+.card__header h1 {
+  margin: 8px 0 0;
+  font-size: clamp(24px, 4vw, 32px);
+  color: #f8fafc;
+}
+
+.card__header .eyebrow {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 12px;
+  color: #93c5fd;
+  margin: 0;
+}
+
+.card__header .hint {
+  color: #cbd5e1;
+  margin-top: 4px;
+}
+
+.uploader {
+  display: grid;
+  gap: 10px;
+}
+
+.upload-label {
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 14px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: #dbeafe;
+  background: rgba(255, 255, 255, 0.04);
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.upload-label:hover {
+  border-color: #93c5fd;
+  transform: translateY(-1px);
+}
+
+.upload-label input {
+  display: none;
 }
 
 .preview {
   border-radius: 12px;
   overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.preview img {
+  width: 100%;
+  display: block;
+  object-fit: contain;
+  max-height: 360px;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+button {
+  border: none;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font-size: 15px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.primary {
+  background: linear-gradient(135deg, #38bdf8, #6366f1);
+  color: #0b1021;
+  font-weight: 700;
+  box-shadow: 0 12px 30px rgba(99, 102, 241, 0.35);
+}
+
+.primary:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.ghost {
+  background: transparent;
+  color: #e2e8f0;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.status {
+  border-radius: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.status h2 {
+  margin: 0 0 6px;
+  font-size: 18px;
 }
 
 .summary-text {
   white-space: pre-wrap;
 }
 
-.chat-card {
-  position: relative;
+.status--success {
+  background: rgba(74, 222, 128, 0.08);
+  border-color: rgba(74, 222, 128, 0.3);
 }
 
-.chat-body {
+.status--error {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.status--info {
+  background: rgba(125, 211, 252, 0.08);
+  border-color: rgba(125, 211, 252, 0.4);
+}
+
+.chat {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
-.chat-log {
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  background: rgba(2, 6, 23, 0.7);
-  max-height: 360px;
-  overflow-y: auto;
-  overflow-x: hidden;
-}
-
-.chat-row {
+.chat__controls {
   display: flex;
-  max-width: 100%;
-}
-
-.chat-row--user {
   justify-content: flex-end;
 }
 
-.chat-row--assistant {
-  justify-content: flex-start;
+.chat__suggestions {
+  display: grid;
+  gap: 8px;
 }
 
-.chat-bubble {
-  max-width: min(80%, 520px);
-  padding: 12px 14px;
-  border-radius: 16px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.2);
+.chat__suggestions-title {
+  margin: 0;
+  font-size: 14px;
+  color: #cbd5e1;
 }
 
-.chat-bubble--user {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.28), rgba(99, 102, 241, 0.35));
-  border: 1px solid rgba(56, 189, 248, 0.5);
-  color: #e6f6ff;
+.chat__suggestions-list {
+  display: grid;
+  gap: 8px;
 }
 
-.chat-bubble--assistant {
-  background: rgba(148, 163, 184, 0.12);
-  border: 1px solid rgba(148, 163, 184, 0.3);
+.chat__suggestion {
+  text-align: left;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  color: #e0f2fe;
+  border-radius: 10px;
+  padding: 8px 10px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.2s ease;
+}
+
+.chat__suggestion:hover {
+  transform: translateY(-1px);
+  border-color: #7dd3fc;
+}
+
+.chat__suggestion:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+}
+
+.chat__suggestions-empty,
+.chat__suggestions-status {
+  margin: 0;
+  font-size: 13px;
+  color: #94a3b8;
+}
+
+.chat__suggestions-status--error {
+  color: #fca5a5;
+}
+
+.chat__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #cbd5f5;
+}
+
+.chat__toggle input {
+  accent-color: #38bdf8;
+}
+
+.chat__header {
+  display: grid;
+  gap: 4px;
+}
+
+.chat__header h2 {
+  margin: 0;
+  font-size: 20px;
   color: #f8fafc;
 }
 
-.chat-input-bar {
+.chat__hint {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.chat__log {
   display: grid;
   gap: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(15, 23, 42, 0.35);
+  max-height: 320px;
+  overflow-y: auto;
 }
 
-.chat-card :deep(.v-chip) {
-  max-width: 100%;
-  white-space: normal;
+.chat__bubble {
+  padding: 10px 12px;
+  border-radius: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
 }
 
-@media (min-width: 900px) {
-  .chat-input-bar {
-    grid-template-columns: 1fr auto;
-    align-items: end;
-  }
+.chat__bubble--user {
+  justify-self: end;
+  background: rgba(56, 189, 248, 0.18);
+  border: 1px solid rgba(56, 189, 248, 0.4);
+  color: #e0f2fe;
 }
 
-@media (max-width: 600px) {
-  .app-shell {
-    padding: 12px 0;
+.chat__bubble--assistant {
+  justify-self: start;
+  background: rgba(148, 163, 184, 0.14);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  color: #f1f5f9;
+}
+
+.chat__empty {
+  margin: 0;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.chat__form {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.chat__input {
+  flex: 1;
+  min-height: 48px;
+  resize: vertical;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: #e2e8f0;
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.chat__input:focus {
+  outline: 2px solid rgba(56, 189, 248, 0.6);
+  outline-offset: 1px;
+}
+
+@media (max-width: 640px) {
+  .card {
+    padding: 22px;
   }
 
-  .app-card {
-    border-radius: 14px;
+  .actions {
+    flex-direction: column;
   }
 
-  .chat-log {
-    padding: 12px;
-    max-height: 300px;
+  .chat__form {
+    flex-direction: column;
   }
 
-  .chat-bubble {
-    max-width: 92%;
-    border-radius: 14px;
-  }
-
-  .chat-input-bar {
-    grid-template-columns: 1fr;
+  button {
+    width: 100%;
   }
 }
 </style>

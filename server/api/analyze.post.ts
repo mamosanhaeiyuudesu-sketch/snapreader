@@ -1,4 +1,4 @@
-const CACHE_TTL_MS = 60 * 60 * 72; // 72時間
+const CACHE_TTL_MS = 60 * 60 * 72 * 1000; // 72時間
 const cache = new Map<string, { summary: string; expiresAt: number }>();
 
 const hashString = (value: string) => {
