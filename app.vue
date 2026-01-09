@@ -42,6 +42,11 @@
         <p class="summary-text">{{ summary }}</p>
       </section>
 
+      <section v-if="transcript" class="status status--info">
+        <h2>全文書き起こし</h2>
+        <p class="summary-text">{{ transcript }}</p>
+      </section>
+
       <section v-if="summary" class="chat">
         <!-- <div class="chat__controls">
           <label class="chat__toggle">
@@ -124,6 +129,7 @@ const previewUrl = ref<string>('');
 const fileInput = ref<HTMLInputElement | null>(null);
 const imageBase64 = ref<string>('');
 const summary = ref<string>('');
+const transcript = ref<string>('');
 const error = ref<string>('');
 const loading = ref(false);
 const chatMessages = ref<ChatMessage[]>([]);
@@ -167,6 +173,7 @@ const onFileChange = async (event: Event) => {
 
   error.value = '';
   summary.value = '';
+  transcript.value = '';
 
   if (!file.type.startsWith('image/')) {
     error.value = '画像ファイルを選択してください。';
@@ -182,19 +189,16 @@ const onFileChange = async (event: Event) => {
   }
 };
 
-const updateSuggestions = async (contextMessages: ChatMessage[]) => {
-  if (!summary.value) return;
+const updateSuggestions = async () => {
+  if (!transcript.value) return;
 
   suggestionsLoading.value = true;
   suggestionsError.value = '';
 
   try {
-    const response = await $fetch<{ questions: string[] }>('/api/suggest', {
+    const response = await $fetch<{ questions: string[] }>('/api/questions', {
       method: 'POST',
-      body: {
-        summary: summary.value,
-        messages: contextMessages.slice(-6),
-      },
+      body: { transcript: transcript.value },
     });
     suggestedQuestions.value = (response?.questions ?? [])
       .map((question) => normalizeQuestion(question))
@@ -228,12 +232,19 @@ const submit = async () => {
   suggestionsError.value = '';
 
   try {
-    const response = await $fetch<{ summary: string }>('/api/analyze', {
-      method: 'POST',
-      body: { imageBase64: imageBase64.value },
-    });
-    summary.value = formatText(response.summary);
-    await updateSuggestions([]);
+  const transcriptResponse = await $fetch<{ transcript: string }>('/api/transcript', {
+    method: 'POST',
+    body: { imageBase64: imageBase64.value },
+  });
+  transcript.value = formatText(transcriptResponse.transcript);
+
+  const summaryResponse = await $fetch<{ summary: string }>('/api/summary', {
+    method: 'POST',
+    body: { transcript: transcript.value },
+  });
+  summary.value = formatText(summaryResponse.summary);
+
+  await updateSuggestions();
   } catch (err: any) {
     const message =
       err?.data?.message || err?.statusMessage || err?.message || '解析に失敗しました。';
@@ -278,6 +289,7 @@ const sendChat = async (overrideQuestion?: string) => {
       body: JSON.stringify({
         imageBase64: includeImageInChat.value ? imageBase64.value : undefined,
         summary: summary.value,
+        transcript: transcript.value,
         messages: trimmedMessages,
       }),
     });
@@ -312,7 +324,7 @@ const sendChat = async (overrideQuestion?: string) => {
 
     assistantRaw += decoder.decode();
     chatMessages.value[assistantIndex].content = formatText(assistantRaw);
-    await updateSuggestions(chatMessages.value);
+    await updateSuggestions();
   } catch (err: any) {
     const message =
       err?.data?.message || err?.statusMessage || err?.message || '返信の取得に失敗しました。';
@@ -340,6 +352,7 @@ const reset = () => {
   previewUrl.value = '';
   imageBase64.value = '';
   summary.value = '';
+  transcript.value = '';
   error.value = '';
   chatMessages.value = [];
   chatInput.value = '';
@@ -607,6 +620,7 @@ button:disabled {
 }
 
 .chat__bubble {
+  max-width: 88%;
   padding: 10px 12px;
   border-radius: 12px;
   line-height: 1.5;
@@ -668,6 +682,10 @@ button:disabled {
 
   .chat__form {
     flex-direction: column;
+  }
+
+  .chat__bubble--user {
+    max-width: 70%;
   }
 
   button {

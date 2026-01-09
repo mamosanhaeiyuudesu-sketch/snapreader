@@ -21,11 +21,13 @@ export default defineEventHandler(async (event) => {
   const body = await readBody<{
     imageBase64?: string;
     summary?: string;
+    transcript?: string;
     messages?: ChatMessage[];
   }>(event);
 
   const imageBase64 = body?.imageBase64;
   const summary = body?.summary;
+  const transcript = body?.transcript;
   const rawMessages = body?.messages ?? [];
 
   if (!summary) {
@@ -69,9 +71,11 @@ export default defineEventHandler(async (event) => {
             type: 'input_text',
             text:
               'あなたは画像の要約の続きを扱うアシスタントです。' +
-              '以下は画像の要約です。\n' +
+              '以下は画像の全文書き起こしです。\n' +
+              (transcript || '（全文なし）') +
+              '\n以下は画像の要約です。\n' +
               summary +
-              '\n要約を踏まえて、ユーザーの質問に日本語で簡潔に答えてください。' +
+              '\n全文と要約を踏まえて、ユーザーの質問に日本語で簡潔に答えてください。' +
               'マークダウンは使わず、句点「。」ごとに改行してください。' +
               '画像が提供されている場合は参照して構いません。',
           },
